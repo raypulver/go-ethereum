@@ -618,7 +618,10 @@ func mist(ctx *cli.Context) {
 		utils.Fatalf("%v", err)
 	}
 
-	startEth(ctx, ethereum)
+    startEth(ctx, ethereum)
+    waitForMist()
+
+    ethereum.Stop()
 	ethereum.WaitForShutdown()
 }
 
