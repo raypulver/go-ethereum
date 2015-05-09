@@ -143,6 +143,10 @@ func (self *JSRE) runEventLoop() {
 		}
 		return otto.UndefinedValue()
 	}
+	self.vm.Set("setTimeout", setTimeout)
+	self.vm.Set("setInterval", setInterval)
+	self.vm.Set("clearTimeout", clearTimeout)
+	self.vm.Set("clearInterval", clearTimeout)
 
 	var waitForCallbacks bool
 
@@ -165,7 +169,7 @@ loop:
 			_, err := self.vm.Call(`Function.call.call`, nil, arguments...)
 
 			if err != nil {
-				break loop
+				fmt.Println("js error:", err, arguments)
 			}
 			if timer.interval {
 				timer.timer.Reset(timer.duration)
@@ -177,10 +181,6 @@ loop:
 			}
 		case evalReq := <-self.evalQueue:
 			// run the code, send the result back
-			self.vm.Set("setTimeout", setTimeout)
-			self.vm.Set("setInterval", setInterval)
-			self.vm.Set("clearTimeout", clearTimeout)
-			self.vm.Set("clearInterval", clearTimeout)
 			evalReq.fn(&evalReq.res)
 			close(evalReq.done)
 			if waitForCallbacks && (len(registry) == 0) {
@@ -286,7 +286,7 @@ func (self *JSRE) loadScript(call otto.FunctionCall) otto.Value {
 // uses the "prettyPrint" JS function to format a value
 func (self *JSRE) PrettyPrint(v interface{}) (val otto.Value, err error) {
 	var method otto.Value
-	v, err = self.vm.ToValue(v)
+	v, err = self.ToValue(v)
 	if err != nil {
 		return
 	}
@@ -297,8 +297,23 @@ func (self *JSRE) PrettyPrint(v interface{}) (val otto.Value, err error) {
 	return method.Call(method, v)
 }
 
-// creates an otto value from a go type
+// creates an otto value from a go type (serialized version)
+func (self *JSRE) ToValue(v interface{}) (otto.Value, error) {
+	done := make(chan bool)
+	req := &evalReq{
+		fn: func(res *evalResult) {
+			res.result, res.err = self.vm.ToValue(v)
+		},
+		done: done,
+	}
+	self.evalQueue <- req
+	<-done
+	return req.res.result, req.res.err
+}
+
+// creates an otto value from a go type (non-serialized version)
 func (self *JSRE) ToVal(v interface{}) otto.Value {
+
 	result, err := self.vm.ToValue(v)
 	if err != nil {
 		fmt.Println("Value unknown:", err)

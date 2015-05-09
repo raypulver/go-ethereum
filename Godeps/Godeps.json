@@ -17,8 +17,8 @@
 		},
 		{
 			"ImportPath": "github.com/ethereum/ethash",
-			"Comment": "v23.1-82-g908aad3",
-			"Rev": "908aad345c9fbf3ab9bbb94031dc02d0d90df1b8"
+			"Comment": "v23.1-204-g0401fdf",
+			"Rev": "0401fdf56a3bc8679f9560e542c3d1cf83020efe"
 		},
 		{
 			"ImportPath": "github.com/howeyc/fsnotify",
@@ -97,6 +97,10 @@
 			"ImportPath": "gopkg.in/fatih/set.v0",
 			"Comment": "v0.1.0-3-g27c4092",
 			"Rev": "27c40922c40b43fe04554d8223a402af3ea333f3"
+		},
+		{
+			"ImportPath": "gopkg.in/karalabe/cookiejar.v2/collections/prque",
+			"Rev": "0b2e270613f5d7ba262a5749b9e32270131497a2"
 		},
 		{
 			"ImportPath": "gopkg.in/qml.v1/cdata",

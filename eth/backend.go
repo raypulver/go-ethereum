@@ -2,8 +2,12 @@ package eth
 
 import (
 	"crypto/ecdsa"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -36,6 +40,9 @@ var (
 		// ETH/DEV cpp-ethereum (poc-9.ethdev.com)
 		discover.MustParseNode("enode://487611428e6c99a11a9795a6abe7b529e81315ca6aad66e2a2fc76e3adf263faba0d35466c2f8f68d561dbefa8878d4df5f1f2ddb1fbeab7f42ffb8cd328bd4a@5.1.83.226:30303"),
 	}
+
+	staticNodes  = "static-nodes.json"  // Path within <datadir> to search for the static node list
+	trustedNodes = "trusted-nodes.json" // Path within <datadir> to search for the trusted node list
 )
 
 type Config struct {
@@ -53,11 +60,11 @@ type Config struct {
 	VmDebug  bool
 	NatSpec  bool
 
-	MaxPeers int
-	Port     string
+	MaxPeers        int
+	MaxPendingPeers int
+	Port            string
 
-	// This should be a space-separated list of
-	// discovery node URLs.
+	// Space-separated list of discovery node URLs
 	BootNodes string
 
 	// This key is used to identify the node on the network.
@@ -94,6 +101,40 @@ func (cfg *Config) parseBootNodes() []*discover.Node {
 		ns = append(ns, n)
 	}
 	return ns
+}
+
+// parseNodes parses a list of discovery node URLs loaded from a .json file.
+func (cfg *Config) parseNodes(file string) []*discover.Node {
+	// Short circuit if no node config is present
+	path := filepath.Join(cfg.DataDir, file)
+	if _, err := os.Stat(path); err != nil {
+		return nil
+	}
+	// Load the nodes from the config file
+	blob, err := ioutil.ReadFile(path)
+	if err != nil {
+		glog.V(logger.Error).Infof("Failed to access nodes: %v", err)
+		return nil
+	}
+	nodelist := []string{}
+	if err := json.Unmarshal(blob, &nodelist); err != nil {
+		glog.V(logger.Error).Infof("Failed to load nodes: %v", err)
+		return nil
+	}
+	// Interpret the list as a discovery node array
+	var nodes []*discover.Node
+	for _, url := range nodelist {
+		if url == "" {
+			continue
+		}
+		node, err := discover.ParseNode(url)
+		if err != nil {
+			glog.V(logger.Error).Infof("Node URL %s: %v\n", url, err)
+			continue
+		}
+		nodes = append(nodes, node)
+	}
+	return nodes
 }
 
 func (cfg *Config) nodeKey() (*ecdsa.PrivateKey, error) {
@@ -220,7 +261,7 @@ func New(config *Config) (*Ethereum, error) {
 
 	eth.chainManager = core.NewChainManager(blockDb, stateDb, eth.EventMux())
 	eth.downloader = downloader.New(eth.chainManager.HasBlock, eth.chainManager.GetBlock)
-	eth.pow = ethash.New(eth.chainManager)
+	eth.pow = ethash.New()
 	eth.txPool = core.NewTxPool(eth.EventMux(), eth.chainManager.State, eth.chainManager.GasLimit)
 	eth.blockProcessor = core.NewBlockProcessor(stateDb, extraDb, eth.pow, eth.txPool, eth.chainManager, eth.EventMux())
 	eth.chainManager.SetProcessor(eth.blockProcessor)
@@ -240,14 +281,17 @@ func New(config *Config) (*Ethereum, error) {
 		protocols = append(protocols, eth.whisper.Protocol())
 	}
 	eth.net = &p2p.Server{
-		PrivateKey:     netprv,
-		Name:           config.Name,
-		MaxPeers:       config.MaxPeers,
-		Protocols:      protocols,
-		NAT:            config.NAT,
-		NoDial:         !config.Dial,
-		BootstrapNodes: config.parseBootNodes(),
-		NodeDatabase:   nodeDb,
+		PrivateKey:      netprv,
+		Name:            config.Name,
+		MaxPeers:        config.MaxPeers,
+		MaxPendingPeers: config.MaxPendingPeers,
+		Protocols:       protocols,
+		NAT:             config.NAT,
+		NoDial:          !config.Dial,
+		BootstrapNodes:  config.parseBootNodes(),
+		StaticNodes:     config.parseNodes(staticNodes),
+		TrustedNodes:    config.parseNodes(trustedNodes),
+		NodeDatabase:    nodeDb,
 	}
 	if len(config.Port) > 0 {
 		eth.net.ListenAddr = ":" + config.Port
@@ -277,8 +321,8 @@ func (s *Ethereum) NodeInfo() *NodeInfo {
 		NodeUrl:    node.String(),
 		NodeID:     node.ID.String(),
 		IP:         node.IP.String(),
-		DiscPort:   node.DiscPort,
-		TCPPort:    node.TCPPort,
+		DiscPort:   int(node.UDP),
+		TCPPort:    int(node.TCP),
 		ListenAddr: s.net.ListenAddr,
 		Td:         s.ChainManager().Td().String(),
 	}
@@ -318,7 +362,6 @@ func (s *Ethereum) PeersInfo() (peersinfo []*PeerInfo) {
 
 func (s *Ethereum) ResetWithGenesisBlock(gb *types.Block) {
 	s.chainManager.ResetWithGenesisBlock(gb)
-	s.pow.UpdateCache(0, true)
 }
 
 func (s *Ethereum) StartMining() error {
@@ -442,12 +485,15 @@ func (s *Ethereum) StartForTest() {
 	s.txPool.Start()
 }
 
-func (self *Ethereum) SuggestPeer(nodeURL string) error {
+// AddPeer connects to the given node and maintains the connection until the
+// server is shut down. If the connection fails for any reason, the server will
+// attempt to reconnect the peer.
+func (self *Ethereum) AddPeer(nodeURL string) error {
 	n, err := discover.ParseNode(nodeURL)
 	if err != nil {
 		return fmt.Errorf("invalid node URL: %v", err)
 	}
-	self.net.SuggestPeer(n)
+	self.net.AddPeer(n)
 	return nil
 }
 

@@ -157,6 +157,7 @@ func (args *GetBlockByNumberArgs) UnmarshalJSON(b []byte) (err error) {
 type NewTxArgs struct {
 	From     string
 	To       string
+	Nonce    *big.Int
 	Value    *big.Int
 	Gas      *big.Int
 	GasPrice *big.Int
@@ -170,6 +171,7 @@ func (args *NewTxArgs) UnmarshalJSON(b []byte) (err error) {
 	var ext struct {
 		From     string
 		To       string
+		Nonce    interface{}
 		Value    interface{}
 		Gas      interface{}
 		GasPrice interface{}
@@ -200,6 +202,14 @@ func (args *NewTxArgs) UnmarshalJSON(b []byte) (err error) {
 	args.Data = ext.Data
 
 	var num *big.Int
+	if ext.Nonce != nil {
+		num, err = numString(ext.Nonce)
+		if err != nil {
+			return err
+		}
+	}
+	args.Nonce = num
+
 	if ext.Value == nil {
 		num = big.NewInt(0)
 	} else {
@@ -1123,6 +1133,29 @@ func (args *SubmitWorkArgs) UnmarshalJSON(b []byte) (err error) {
 	}
 
 	args.Digest = objstr
+
+	return nil
+}
+
+type SourceArgs struct {
+	Source string
+}
+
+func (args *SourceArgs) UnmarshalJSON(b []byte) (err error) {
+	var obj []interface{}
+	if err := json.Unmarshal(b, &obj); err != nil {
+		return NewDecodeParamError(err.Error())
+	}
+
+	if len(obj) < 1 {
+		return NewInsufficientParamsError(len(obj), 1)
+	}
+
+	arg0, ok := obj[0].(string)
+	if !ok {
+		return NewInvalidTypeError("source code", "not a string")
+	}
+	args.Source = arg0
 
 	return nil
 }

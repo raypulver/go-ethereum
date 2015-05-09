@@ -22,8 +22,11 @@ func startTestServer(t *testing.T, pf newPeerHook) *Server {
 		ListenAddr:  "127.0.0.1:0",
 		PrivateKey:  newkey(),
 		newPeerHook: pf,
-		setupFunc: func(fd net.Conn, prv *ecdsa.PrivateKey, our *protoHandshake, dial *discover.Node, atcap bool) (*conn, error) {
+		setupFunc: func(fd net.Conn, prv *ecdsa.PrivateKey, our *protoHandshake, dial *discover.Node, keepconn func(discover.NodeID) bool) (*conn, error) {
 			id := randomID()
+			if !keepconn(id) {
+				return nil, DiscAlreadyConnected
+			}
 			rw := newRlpxFrameRW(fd, secrets{
 				MAC:        zero16,
 				AES:        zero16,
@@ -102,7 +105,7 @@ func TestServerDial(t *testing.T) {
 
 	// tell the server to connect
 	tcpAddr := listener.Addr().(*net.TCPAddr)
-	srv.SuggestPeer(&discover.Node{IP: tcpAddr.IP, TCPPort: tcpAddr.Port})
+	srv.staticDial <- &discover.Node{IP: tcpAddr.IP, TCP: uint16(tcpAddr.Port)}
 
 	select {
 	case conn := <-accepted:
@@ -200,7 +203,7 @@ func TestServerDisconnectAtCap(t *testing.T) {
 		// Run the handshakes just like a real peer would.
 		key := newkey()
 		hs := &protoHandshake{Version: baseProtocolVersion, ID: discover.PubkeyID(&key.PublicKey)}
-		_, err = setupConn(conn, key, hs, srv.Self(), false)
+		_, err = setupConn(conn, key, hs, srv.Self(), keepalways)
 		if i == nconns-1 {
 			// When handling the last connection, the server should
 			// disconnect immediately instead of running the protocol
@@ -219,6 +222,286 @@ func TestServerDisconnectAtCap(t *testing.T) {
 	}
 }
 
+// Tests that static peers are (re)connected, and done so even above max peers.
+func TestServerStaticPeers(t *testing.T) {
+	defer testlog(t).detach()
+
+	// Create a test server with limited connection slots
+	started := make(chan *Peer)
+	server := &Server{
+		ListenAddr:  "127.0.0.1:0",
+		PrivateKey:  newkey(),
+		MaxPeers:    3,
+		newPeerHook: func(p *Peer) { started <- p },
+		staticCycle: time.Second,
+	}
+	if err := server.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer server.Stop()
+
+	// Fill up all the slots on the server
+	dialer := &net.Dialer{Deadline: time.Now().Add(3 * time.Second)}
+	for i := 0; i < server.MaxPeers; i++ {
+		// Establish a new connection
+		conn, err := dialer.Dial("tcp", server.ListenAddr)
+		if err != nil {
+			t.Fatalf("conn %d: dial error: %v", i, err)
+		}
+		defer conn.Close()
+
+		// Run the handshakes just like a real peer would, and wait for completion
+		key := newkey()
+		shake := &protoHandshake{Version: baseProtocolVersion, ID: discover.PubkeyID(&key.PublicKey)}
+		if _, err = setupConn(conn, key, shake, server.Self(), keepalways); err != nil {
+			t.Fatalf("conn %d: unexpected error: %v", i, err)
+		}
+		<-started
+	}
+	// Open a TCP listener to accept static connections
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to setup listener: %v", err)
+	}
+	defer listener.Close()
+
+	connected := make(chan net.Conn)
+	go func() {
+		for i := 0; i < 3; i++ {
+			conn, err := listener.Accept()
+			if err == nil {
+				connected <- conn
+			}
+		}
+	}()
+	// Inject a static node and wait for a remote dial, then redial, then nothing
+	addr := listener.Addr().(*net.TCPAddr)
+	static := &discover.Node{
+		ID:  discover.PubkeyID(&newkey().PublicKey),
+		IP:  addr.IP,
+		TCP: uint16(addr.Port),
+	}
+	server.AddPeer(static)
+
+	select {
+	case conn := <-connected:
+		// Close the first connection, expect redial
+		conn.Close()
+
+	case <-time.After(2 * server.staticCycle):
+		t.Fatalf("remote dial timeout")
+	}
+
+	select {
+	case conn := <-connected:
+		// Keep the second connection, don't expect redial
+		defer conn.Close()
+
+	case <-time.After(2 * server.staticCycle):
+		t.Fatalf("remote re-dial timeout")
+	}
+
+	select {
+	case <-time.After(2 * server.staticCycle):
+		// Timeout as no dial occurred
+
+	case <-connected:
+		t.Fatalf("connected node dialed")
+	}
+}
+
+// Tests that trusted peers and can connect above max peer caps.
+func TestServerTrustedPeers(t *testing.T) {
+	defer testlog(t).detach()
+
+	// Create a trusted peer to accept connections from
+	key := newkey()
+	trusted := &discover.Node{
+		ID: discover.PubkeyID(&key.PublicKey),
+	}
+	// Create a test server with limited connection slots
+	started := make(chan *Peer)
+	server := &Server{
+		ListenAddr:   "127.0.0.1:0",
+		PrivateKey:   newkey(),
+		MaxPeers:     3,
+		NoDial:       true,
+		TrustedNodes: []*discover.Node{trusted},
+		newPeerHook:  func(p *Peer) { started <- p },
+	}
+	if err := server.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer server.Stop()
+
+	// Fill up all the slots on the server
+	dialer := &net.Dialer{Deadline: time.Now().Add(3 * time.Second)}
+	for i := 0; i < server.MaxPeers; i++ {
+		// Establish a new connection
+		conn, err := dialer.Dial("tcp", server.ListenAddr)
+		if err != nil {
+			t.Fatalf("conn %d: dial error: %v", i, err)
+		}
+		defer conn.Close()
+
+		// Run the handshakes just like a real peer would, and wait for completion
+		key := newkey()
+		shake := &protoHandshake{Version: baseProtocolVersion, ID: discover.PubkeyID(&key.PublicKey)}
+		if _, err = setupConn(conn, key, shake, server.Self(), keepalways); err != nil {
+			t.Fatalf("conn %d: unexpected error: %v", i, err)
+		}
+		<-started
+	}
+	// Dial from the trusted peer, ensure connection is accepted
+	conn, err := dialer.Dial("tcp", server.ListenAddr)
+	if err != nil {
+		t.Fatalf("trusted node: dial error: %v", err)
+	}
+	defer conn.Close()
+
+	shake := &protoHandshake{Version: baseProtocolVersion, ID: trusted.ID}
+	if _, err = setupConn(conn, key, shake, server.Self(), keepalways); err != nil {
+		t.Fatalf("trusted node: unexpected error: %v", err)
+	}
+	select {
+	case <-started:
+		// Ok, trusted peer accepted
+
+	case <-time.After(100 * time.Millisecond):
+		t.Fatalf("trusted node timeout")
+	}
+}
+
+// Tests that a failed dial will temporarily throttle a peer.
+func TestServerMaxPendingDials(t *testing.T) {
+	defer testlog(t).detach()
+
+	// Start a simple test server
+	server := &Server{
+		ListenAddr:      "127.0.0.1:0",
+		PrivateKey:      newkey(),
+		MaxPeers:        10,
+		MaxPendingPeers: 1,
+	}
+	if err := server.Start(); err != nil {
+		t.Fatal("failed to start test server: %v", err)
+	}
+	defer server.Stop()
+
+	// Simulate two separate remote peers
+	peers := make(chan *discover.Node, 2)
+	conns := make(chan net.Conn, 2)
+	for i := 0; i < 2; i++ {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("listener %d: failed to setup: %v", i, err)
+		}
+		defer listener.Close()
+
+		addr := listener.Addr().(*net.TCPAddr)
+		peers <- &discover.Node{
+			ID:  discover.PubkeyID(&newkey().PublicKey),
+			IP:  addr.IP,
+			TCP: uint16(addr.Port),
+		}
+		go func() {
+			conn, err := listener.Accept()
+			if err == nil {
+				conns <- conn
+			}
+		}()
+	}
+	// Request a dial for both peers
+	go func() {
+		for i := 0; i < 2; i++ {
+			server.staticDial <- <-peers // hack piggybacking the static implementation
+		}
+	}()
+
+	// Make sure only one outbound connection goes through
+	var conn net.Conn
+
+	select {
+	case conn = <-conns:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatalf("first dial timeout")
+	}
+	select {
+	case conn = <-conns:
+		t.Fatalf("second dial completed prematurely")
+	case <-time.After(100 * time.Millisecond):
+	}
+	// Finish the first dial, check the second
+	conn.Close()
+	select {
+	case conn = <-conns:
+		conn.Close()
+
+	case <-time.After(100 * time.Millisecond):
+		t.Fatalf("second dial timeout")
+	}
+}
+
+func TestServerMaxPendingAccepts(t *testing.T) {
+	defer testlog(t).detach()
+
+	// Start a test server and a peer sink for synchronization
+	started := make(chan *Peer)
+	server := &Server{
+		ListenAddr:      "127.0.0.1:0",
+		PrivateKey:      newkey(),
+		MaxPeers:        10,
+		MaxPendingPeers: 1,
+		NoDial:          true,
+		newPeerHook:     func(p *Peer) { started <- p },
+	}
+	if err := server.Start(); err != nil {
+		t.Fatal("failed to start test server: %v", err)
+	}
+	defer server.Stop()
+
+	// Try and connect to the server on multiple threads concurrently
+	conns := make([]net.Conn, 2)
+	for i := 0; i < 2; i++ {
+		dialer := &net.Dialer{Deadline: time.Now().Add(3 * time.Second)}
+
+		conn, err := dialer.Dial("tcp", server.ListenAddr)
+		if err != nil {
+			t.Fatalf("failed to dial server: %v", err)
+		}
+		conns[i] = conn
+	}
+	// Check that a handshake on the second doesn't pass
+	go func() {
+		key := newkey()
+		shake := &protoHandshake{Version: baseProtocolVersion, ID: discover.PubkeyID(&key.PublicKey)}
+		if _, err := setupConn(conns[1], key, shake, server.Self(), keepalways); err != nil {
+			t.Fatalf("failed to run handshake: %v", err)
+		}
+	}()
+	select {
+	case <-started:
+		t.Fatalf("handshake on second connection accepted")
+
+	case <-time.After(time.Second):
+	}
+	// Shake on first, check that both go through
+	go func() {
+		key := newkey()
+		shake := &protoHandshake{Version: baseProtocolVersion, ID: discover.PubkeyID(&key.PublicKey)}
+		if _, err := setupConn(conns[0], key, shake, server.Self(), keepalways); err != nil {
+			t.Fatalf("failed to run handshake: %v", err)
+		}
+	}()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatalf("peer %d: handshake timeout", i)
+		}
+	}
+}
+
 func newkey() *ecdsa.PrivateKey {
 	key, err := crypto.GenerateKey()
 	if err != nil {
@@ -232,4 +515,8 @@ func randomID() (id discover.NodeID) {
 		id[i] = byte(rand.Intn(255))
 	}
 	return id
+}
+
+func keepalways(id discover.NodeID) bool {
+	return true
 }

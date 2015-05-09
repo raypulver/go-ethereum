@@ -66,7 +66,6 @@ func CalcGasLimit(parent *types.Block) *big.Int {
 
 	result := new(big.Int).Add(previous, curInt)
 	result.Div(result, big.NewInt(1024))
-
 	return common.BigMax(params.GenesisGasLimit, result)
 }
 
@@ -161,7 +160,8 @@ func (self *ChainManager) Td() *big.Int {
 }
 
 func (self *ChainManager) GasLimit() *big.Int {
-	return self.currentGasLimit
+	// return self.currentGasLimit
+	return self.currentBlock.GasLimit()
 }
 
 func (self *ChainManager) LastBlockHash() common.Hash {
@@ -280,7 +280,6 @@ func (bc *ChainManager) NewBlock(coinbase common.Address) *types.Block {
 		header.Difficulty = CalcDifficulty(block.Header(), parent.Header())
 		header.Number = new(big.Int).Add(parent.Header().Number, common.Big1)
 		header.GasLimit = CalcGasLimit(parent)
-
 	}
 
 	return block
@@ -320,6 +319,7 @@ func (bc *ChainManager) ResetWithGenesisBlock(gb *types.Block) {
 	}
 
 	// Prepare the genesis block
+	gb.Td = gb.Difficulty()
 	bc.genesisBlock = gb
 	bc.write(bc.genesisBlock)
 	bc.insert(bc.genesisBlock)

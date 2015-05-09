@@ -27,8 +27,10 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/codegangsta/cli"
@@ -49,7 +51,7 @@ import _ "net/http/pprof"
 
 const (
 	ClientIdentifier = "Geth"
-	Version          = "0.9.15"
+	Version          = "0.9.17"
 )
 
 var (
@@ -245,6 +247,7 @@ JavaScript API. See https://github.com/ethereum/go-ethereum/wiki/Javascipt-Conso
 		utils.JSpathFlag,
 		utils.ListenPortFlag,
 		utils.MaxPeersFlag,
+		utils.MaxPendingPeersFlag,
 		utils.EtherbaseFlag,
 		utils.MinerThreadsFlag,
 		utils.MiningEnabledFlag,
@@ -271,6 +274,7 @@ JavaScript API. See https://github.com/ethereum/go-ethereum/wiki/Javascipt-Conso
 		utils.LogJSONFlag,
 		utils.PProfEanbledFlag,
 		utils.PProfPortFlag,
+		utils.SolcPathFlag,
 	}
 	app.Before = func(ctx *cli.Context) error {
 		if ctx.GlobalBool(utils.PProfEanbledFlag.Name) {
@@ -326,7 +330,14 @@ func console(ctx *cli.Context) {
 	}
 
 	startEth(ctx, ethereum)
-	repl := newJSRE(ethereum, ctx.String(utils.JSpathFlag.Name), true, ctx.GlobalString(utils.RPCCORSDomainFlag.Name))
+	repl := newJSRE(
+		ethereum,
+		ctx.String(utils.JSpathFlag.Name),
+		ctx.String(utils.SolcPathFlag.Name),
+		ctx.GlobalString(utils.RPCCORSDomainFlag.Name),
+		true,
+		nil,
+	)
 	repl.interactive()
 
 	ethereum.Stop()
@@ -341,7 +352,14 @@ func execJSFiles(ctx *cli.Context) {
 	}
 
 	startEth(ctx, ethereum)
-	repl := newJSRE(ethereum, ctx.String(utils.JSpathFlag.Name), false, ctx.GlobalString(utils.RPCCORSDomainFlag.Name))
+	repl := newJSRE(
+		ethereum,
+		ctx.String(utils.JSpathFlag.Name),
+		ctx.String(utils.SolcPathFlag.Name),
+		ctx.GlobalString(utils.RPCCORSDomainFlag.Name),
+		false,
+		nil,
+	)
 	for _, file := range ctx.Args() {
 		repl.exec(file)
 	}
@@ -368,6 +386,7 @@ func unlockAccount(ctx *cli.Context, am *accounts.Manager, account string) (pass
 
 func startEth(ctx *cli.Context, eth *eth.Ethereum) {
 	// Start Ethereum itself
+
 	utils.StartEthereum(eth)
 	am := eth.AccountManager()
 
@@ -628,12 +647,32 @@ func dump(ctx *cli.Context) {
 }
 
 func makedag(ctx *cli.Context) {
-	chain, _, _ := utils.GetChain(ctx)
-	pow := ethash.New(chain)
-	fmt.Println("making cache")
-	pow.UpdateCache(0, true)
-	fmt.Println("making DAG")
-	pow.UpdateDAG()
+	args := ctx.Args()
+	wrongArgs := func() {
+		utils.Fatalf(`Usage: geth makedag <block number> <outputdir>`)
+	}
+	switch {
+	case len(args) == 2:
+		blockNum, err := strconv.ParseUint(args[0], 0, 64)
+		dir := args[1]
+		if err != nil {
+			wrongArgs()
+		} else {
+			dir = filepath.Clean(dir)
+			// seems to require a trailing slash
+			if !strings.HasSuffix(dir, "/") {
+				dir = dir + "/"
+			}
+			_, err = ioutil.ReadDir(dir)
+			if err != nil {
+				utils.Fatalf("Can't find dir")
+			}
+			fmt.Println("making DAG, this could take awhile...")
+			ethash.MakeDAG(blockNum, dir)
+		}
+	default:
+		wrongArgs()
+	}
 }
 
 func version(c *cli.Context) {

@@ -196,7 +196,12 @@ var (
 	MaxPeersFlag = cli.IntFlag{
 		Name:  "maxpeers",
 		Usage: "Maximum number of network peers (network disabled if set to 0)",
-		Value: 16,
+		Value: 25,
+	}
+	MaxPendingPeersFlag = cli.IntFlag{
+		Name:  "maxpendpeers",
+		Usage: "Maximum number of pending connection attempts (defaults used if set to 0)",
+		Value: 0,
 	}
 	ListenPortFlag = cli.IntFlag{
 		Name:  "port",
@@ -225,6 +230,7 @@ var (
 		Name:  "shh",
 		Usage: "Enable whisper",
 	}
+	// ATM the url is left to the user and deployment to
 	JSpathFlag = cli.StringFlag{
 		Name:  "jspath",
 		Usage: "JS library path to be used with console and js subcommands",
@@ -244,6 +250,11 @@ var (
 		Name:  "wsport",
 		Usage: "Port on which the WS server should listen",
 		Value: 8546,
+	}
+	SolcPathFlag = cli.StringFlag{
+		Name:  "solc",
+		Usage: "solidity compiler to be used",
+		Value: "solc",
 	}
 )
 
@@ -302,6 +313,7 @@ func MakeEthConfig(clientID, version string, ctx *cli.Context) *eth.Config {
 		AccountManager:     GetAccountManager(ctx),
 		VmDebug:            ctx.GlobalBool(VMDebugFlag.Name),
 		MaxPeers:           ctx.GlobalInt(MaxPeersFlag.Name),
+		MaxPendingPeers:    ctx.GlobalInt(MaxPendingPeersFlag.Name),
 		Port:               ctx.GlobalString(ListenPortFlag.Name),
 		NAT:                GetNAT(ctx),
 		NatSpec:            ctx.GlobalBool(NatspecEnabledFlag.Name),
@@ -310,6 +322,7 @@ func MakeEthConfig(clientID, version string, ctx *cli.Context) *eth.Config {
 		Dial:               true,
 		BootNodes:          ctx.GlobalString(BootnodesFlag.Name),
 	}
+
 }
 
 func GetChain(ctx *cli.Context) (*core.ChainManager, common.Database, common.Database) {
@@ -332,7 +345,7 @@ func GetChain(ctx *cli.Context) (*core.ChainManager, common.Database, common.Dat
 
 	eventMux := new(event.TypeMux)
 	chainManager := core.NewChainManager(blockDb, stateDb, eventMux)
-	pow := ethash.New(chainManager)
+	pow := ethash.New()
 	txPool := core.NewTxPool(eventMux, chainManager.State, chainManager.GasLimit)
 	blockProcessor := core.NewBlockProcessor(stateDb, extraDb, pow, txPool, chainManager, eventMux)
 	chainManager.SetProcessor(blockProcessor)
