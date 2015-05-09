@@ -10,21 +10,21 @@ type Config struct {
 
 type WSRequest struct {
 	Id        interface{}     `json:"id"`
-	WsVersion string          `json:"jsonrpc"`
+	WsVersion string          `json:"wsjson"`
 	Method    string          `json:"method"`
 	Params    json.RawMessage `json:"params"`
 }
 
 type WSSuccessResponse struct {
 	Id        interface{} `json:"id"`
-	WsVersion string      `json:"jsonrpc"`
+	WsVersion string      `json:"wsjson"`
 	Method    string      `json:"method"`
 	Result    interface{} `json:"result"`
 }
 
 type WSErrorResponse struct {
 	Id        interface{}    `json:"id"`
-	WsVersion string         `json:"jsonrpc"`
+	WsVersion string         `json:"wsjson"`
 	Method    string         `json:"method"`
 	Error     *WSErrorObject `json:"error"`
 }
