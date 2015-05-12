@@ -35,9 +35,14 @@ type WSErrorObject struct {
 }
 
 type MinerStartRequest struct {
+    NumThreads int `json:"threads"`
 }
 
 type MinerStartResponse struct {
+}
+
+type MinerStopRequest struct {
+    NumThreads int `json:"threads"`
 }
 
 type MinerHashrateResponse struct {

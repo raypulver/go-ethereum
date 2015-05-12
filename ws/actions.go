@@ -4,6 +4,7 @@ import (
 	"github.com/ethereum/go-ethereum/logger"
 	"github.com/ethereum/go-ethereum/logger/glog"
 	"github.com/ethereum/go-ethereum/xeth"
+    "encoding/json"
 )
 
 // WS methods
@@ -31,21 +32,27 @@ func quit(eth *xeth.XEth, req *WSRequest, res *interface{}) error {
 	return nil
 }
 
-func minerStart(eth *xeth.XEth, req *WSRequest, res *interface{}) error {
-	if eth.SetMining(true) {
+func minerStart(eth *xeth.XEth, wsreq *WSRequest, wsres *interface{}) error {
+    var req MinerStartRequest
+    json.Unmarshal(wsreq.Params, &req)
+
+    if !eth.SetMining(false, req.NumThreads) {
 		return nil
 	}
 	return MinerNotStarted
 }
 
-func minerStop(eth *xeth.XEth, req *WSRequest, res *interface{}) error {
-	if !eth.SetMining(false) {
+func minerStop(eth *xeth.XEth, wsreq *WSRequest, wsres *interface{}) error {
+    var req MinerStopRequest
+    json.Unmarshal(wsreq.Params, &req)
+
+	if !eth.SetMining(false, req.NumThreads) {
 		return nil
 	}
 	return MinerNotStopped
 }
 
-func minerHashrate(eth *xeth.XEth, req *WSRequest, res *interface{}) error {
-	*res = &MinerHashrateResponse{Hashrate: eth.HashRate()}
+func minerHashrate(eth *xeth.XEth, wsreq *WSRequest, wsres *interface{}) error {
+	*wsres = &MinerHashrateResponse{Hashrate: eth.HashRate()}
 	return nil
 }
