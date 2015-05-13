@@ -43,3 +43,12 @@ type MinerStartResponse struct {
 type MinerHashrateResponse struct {
 	Hashrate int64 `json:"hashrate"`
 }
+
+type ImportPresaleWalletRequest struct {
+	Path string `json:"path"`
+	Password string `json:"password"`
+}
+
+type ImportPresaleWalletResponse struct {
+	Address string `json:"address"`
+}

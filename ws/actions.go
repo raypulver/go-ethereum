@@ -4,6 +4,7 @@ import (
 	"github.com/ethereum/go-ethereum/logger"
 	"github.com/ethereum/go-ethereum/logger/glog"
 	"github.com/ethereum/go-ethereum/xeth"
+	"encoding/json"
 )
 
 // WS methods
@@ -12,6 +13,7 @@ const (
 	MinerStart    = "miner_start"
 	MinerStop     = "miner_stop"
 	MinerHashrate = "miner_hashrate"
+	ImportPresaleWallet = "import_presale_wallet"
 )
 
 func init() {
@@ -20,13 +22,13 @@ func init() {
 	actions[MinerStart] = minerStart
 	actions[MinerStop] = minerStop
 	actions[MinerHashrate] = minerHashrate
+	actions[ImportPresaleWallet] = importPresaleWallet
 }
 
 // websocket API stateless handler type
 type RequestHandler func(eth *xeth.XEth, req *WSRequest, res *interface{}) error
 
 func quit(eth *xeth.XEth, req *WSRequest, res *interface{}) error {
-	glog.V(logger.Error).Infoln("quit called :)")
 	eth.StopBackend()
 	return nil
 }
@@ -48,4 +50,19 @@ func minerStop(eth *xeth.XEth, req *WSRequest, res *interface{}) error {
 func minerHashrate(eth *xeth.XEth, req *WSRequest, res *interface{}) error {
 	*res = &MinerHashrateResponse{Hashrate: eth.HashRate()}
 	return nil
+}
+
+func importPresaleWallet(eth *xeth.XEth, req *WSRequest, res *interface{}) error {
+	var params ImportPresaleWalletRequest
+	err := json.Unmarshal(req.Params, &params)
+	if err != nil {
+		return err
+	}
+
+	acc, err := eth.ImportPresaleWallet(params.Path, params.Password)
+	if err == nil {
+		res = &ImportPresaleWalletResponse{Address:acc.Address}
+	}
+
+	return err
 }
