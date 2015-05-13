@@ -22,6 +22,7 @@ import (
 	"github.com/ethereum/go-ethereum/logger/glog"
 	"github.com/ethereum/go-ethereum/miner"
 	"github.com/ethereum/go-ethereum/rlp"
+	"io/ioutil"
 )
 
 var (
@@ -948,6 +949,17 @@ func (self *XEth) sign(tx *types.Transaction, from common.Address, didUnlock boo
 	}
 	tx.SetSignatureValues(sig)
 	return nil
+}
+
+// Import presale json wallet, path must be the full path
+func (self *XEth) ImportPresaleWallet(path, password string) (acc *accounts.Account, err error) {
+	jsonKey, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	acc, err = self.backend.AccountManager().ImportPreSaleKey(jsonKey, password)
+	return
 }
 
 // callmsg is the message type used for call transations.
