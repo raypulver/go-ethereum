@@ -1,7 +1,7 @@
 package ws
 
 import (
-    "encoding/json"
+	"encoding/json"
 
 	"github.com/ethereum/go-ethereum/logger"
 	"github.com/ethereum/go-ethereum/logger/glog"
@@ -10,10 +10,10 @@ import (
 
 // WS methods
 const (
-	Quit          = "quit"
-	MinerStart    = "miner_start"
-	MinerStop     = "miner_stop"
-	MinerHashrate = "miner_hashrate"
+	Quit                = "quit"
+	MinerStart          = "miner_start"
+	MinerStop           = "miner_stop"
+	MinerHashrate       = "miner_hashrate"
 	ImportPresaleWallet = "import_presale_wallet"
 )
 
@@ -35,18 +35,18 @@ func quit(eth *xeth.XEth, req *WSRequest, res *interface{}) error {
 }
 
 func minerStart(eth *xeth.XEth, wsreq *WSRequest, wsres *interface{}) error {
-    var req MinerStartRequest
-    json.Unmarshal(wsreq.Params, &req)
+	var req MinerStartRequest
+	json.Unmarshal(wsreq.Params, &req)
 
-    if !eth.SetMining(false, req.NumThreads) {
+	if eth.SetMining(true, req.NumThreads) {
 		return nil
 	}
 	return MinerNotStarted
 }
 
 func minerStop(eth *xeth.XEth, wsreq *WSRequest, wsres *interface{}) error {
-    var req MinerStopRequest
-    json.Unmarshal(wsreq.Params, &req)
+	var req MinerStopRequest
+	json.Unmarshal(wsreq.Params, &req)
 
 	if !eth.SetMining(false, req.NumThreads) {
 		return nil
@@ -68,7 +68,7 @@ func importPresaleWallet(eth *xeth.XEth, req *WSRequest, res *interface{}) error
 
 	acc, err := eth.ImportPresaleWallet(params.Path, params.Password)
 	if err == nil {
-		res = &ImportPresaleWalletResponse{Address:acc.Address}
+		res = &ImportPresaleWalletResponse{Address: acc.Address}
 	}
 
 	return err

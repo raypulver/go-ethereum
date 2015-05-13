@@ -242,6 +242,21 @@ var (
 		Usage: "JS library path to be used with console and js subcommands",
 		Value: ".",
 	}
+	//Websocket settings
+	WSEnabledFlag = cli.BoolFlag{
+		Name:  "ws",
+		Usage: "Enable the websocket interface",
+	}
+	WSListenAddrFlag = cli.StringFlag{
+		Name:  "wsaddr",
+		Usage: "Listen address for the WS server",
+		Value: "127.0.0.1",
+	}
+	WSListenPortFlag = cli.IntFlag{
+		Name:  "wsport",
+		Usage: "Port on which the WS server should listen",
+		Value: 8546,
+	}
 	SolcPathFlag = cli.StringFlag{
 		Name:  "solc",
 		Usage: "solidity compiler to be used",
