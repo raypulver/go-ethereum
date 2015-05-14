@@ -952,14 +952,14 @@ func (self *XEth) sign(tx *types.Transaction, from common.Address, didUnlock boo
 }
 
 // Import presale json wallet, path must be the full path
-func (self *XEth) ImportPresaleWallet(path, password string) (acc *accounts.Account, err error) {
+func (self *XEth) ImportPresaleWallet(path, password string) (*accounts.Account, error) {
 	jsonKey, err := ioutil.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	acc, err = self.backend.AccountManager().ImportPreSaleKey(jsonKey, password)
-	return
+	acc, err := self.backend.AccountManager().ImportPreSaleKey(jsonKey, password)
+	return &acc, err
 }
 
 // callmsg is the message type used for call transations.

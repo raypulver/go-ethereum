@@ -262,21 +262,6 @@ var (
 		Usage: "solidity compiler to be used",
 		Value: "solc",
 	}
-	//Websocket settings
-	WSEnabledFlag = cli.BoolFlag{
-		Name:  "ws",
-		Usage: "Enable the websocket interface",
-	}
-	WSListenAddrFlag = cli.StringFlag{
-		Name:  "wsaddr",
-		Usage: "Listen address for the WS server",
-		Value: "127.0.0.1",
-	}
-	WSListenPortFlag = cli.IntFlag{
-		Name:  "wsport",
-		Usage: "Port on which the WS server should listen",
-		Value: 8546,
-	}
 )
 
 func GetNAT(ctx *cli.Context) nat.Interface {

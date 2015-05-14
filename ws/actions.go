@@ -3,8 +3,6 @@ package ws
 import (
 	"encoding/json"
 
-	"github.com/ethereum/go-ethereum/logger"
-	"github.com/ethereum/go-ethereum/logger/glog"
 	"github.com/ethereum/go-ethereum/xeth"
 )
 
@@ -68,7 +66,7 @@ func importPresaleWallet(eth *xeth.XEth, req *WSRequest, res *interface{}) error
 
 	acc, err := eth.ImportPresaleWallet(params.Path, params.Password)
 	if err == nil {
-		res = &ImportPresaleWalletResponse{Address: acc.Address}
+		*res = &ImportPresaleWalletResponse{Address: acc.Address.Hex()}
 	}
 
 	return err
