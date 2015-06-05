@@ -5,7 +5,9 @@ import (
 	"io/ioutil"
 	"sync"
 	"time"
-
+        "os"
+        "os/exec"
+        "path"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/robertkrimen/otto"
 )
@@ -50,6 +52,36 @@ func New(assetPath string) *JSRE {
 	go re.runEventLoop()
 	re.Compile("pp.js", pp_js) // load prettyprint func definition
 	re.Set("loadScript", re.loadScript)
+        re.Set("fs", struct{}{})
+        t, _ := re.Get("fs")
+        fs := t.Object()
+        re.Set("process", struct{}{})
+        t, _ = re.Get("process")
+        processObj := t.Object()
+        fs.Set("readFile", re.readFile)
+        fs.Set("writeFile", re.writeFile)
+        fs.Set("appendFile", re.appendFile)
+        fs.Set("readdir", re.readdir)
+        processObj.Set("env", os.Environ())
+        processObj.Set("argv", os.Args)
+        processObj.Set("chdir", re.chdir)
+        processObj.Set("exec", re.shellExec)
+        rcpath := path.Join(os.Getenv(`HOME`), `.gethrc`)
+        if _, err := os.Stat(rcpath); err == nil {
+          re.Run(`
+            loadScript('` + rcpath + `');
+          `)
+        }
+        re.Run(`
+          process.env = (function (env) {
+            var ret = {}, re = /(^.*?)=(.*$)/;
+            env.forEach(function (v) {
+              var parts = re.exec(v);
+              ret[parts[1]] = parts[2]
+            });
+            return ret;
+          })(process.env);
+        `)
 	return re
 }
 
@@ -238,6 +270,78 @@ func (self *JSRE) loadScript(call otto.FunctionCall) otto.Value {
 	return otto.TrueValue()
 }
 
+func (self *JSRE) readFile(call otto.FunctionCall) otto.Value {
+        file, err := call.Argument(0).ToString()
+        contents, err := ioutil.ReadFile(file)
+        if err != nil {
+            return otto.FalseValue()
+        }
+        value, _ := otto.ToValue(string(contents))
+        return value
+}
+func (self *JSRE) writeFile(call otto.FunctionCall) otto.Value {
+        file, err := call.Argument(0).ToString()
+        if err != nil { return otto.FalseValue() }
+        content, err  := call.Argument(1).ToString()
+        if err != nil { return otto.FalseValue() }
+        err = ioutil.WriteFile(file, []byte(content), 0644);
+        if err != nil { return otto.FalseValue() }
+        return otto.TrueValue()
+}
+func (self *JSRE) appendFile(call otto.FunctionCall) otto.Value {
+        fn, err := call.Argument(0).ToString()
+        if err != nil { return otto.FalseValue() }
+        content, err  := call.Argument(1).ToString()
+        if err != nil { return otto.FalseValue() }
+        var file *os.File
+        if _, err = os.Stat(fn); os.IsNotExist(err) {
+                file, err = os.Create(fn)
+        } else {
+                file, err = os.OpenFile(fn, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
+        }
+        _, err = file.Write([]byte(content))
+        if err != nil { return otto.FalseValue() }
+        err = file.Close()
+        if err != nil { return otto.FalseValue() }
+        return otto.TrueValue()
+}
+func (self *JSRE) readdir(call otto.FunctionCall) otto.Value {
+        path, err := call.Argument(0).ToString()
+        if err != nil { return otto.FalseValue() }
+        files, err := ioutil.ReadDir(path)
+        if err != nil { return otto.FalseValue() }
+        filenames := make([]string, len(files))
+        for i, element := range files {
+                filenames[i] = element.Name()
+        }
+        ret, _ := call.Otto.ToValue(filenames)
+        return ret
+}
+func (self *JSRE) chdir(call otto.FunctionCall) otto.Value {
+        path, err := call.Argument(0).ToString()
+        if err != nil { return otto.FalseValue() }
+        err = os.Chdir(path)
+        if err != nil { return otto.FalseValue() }
+        return otto.TrueValue()
+} 
+func (self *JSRE) shellExec(call otto.FunctionCall) otto.Value {
+        cmd, err := call.Argument(0).ToString()
+        if err != nil { return otto.FalseValue(); }
+        execution := exec.Command("sh", "-c", cmd)
+        stdout, err := execution.CombinedOutput()
+        var stderr string
+        if err == nil {
+            stderr = ""
+        } else {
+            stderr = err.Error()
+        }
+        t, _ := call.Otto.Call("new Object", nil)
+        obj := t.Object()
+        obj.Set("stdout", string(stdout))
+        obj.Set("stderr", stderr)
+        ret, _ := call.Otto.ToValue(obj)
+        return ret 
+}
 // PrettyPrint writes v to standard output.
 func (self *JSRE) PrettyPrint(v interface{}) (val otto.Value, err error) {
 	var method otto.Value
